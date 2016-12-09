@@ -58,7 +58,6 @@ public class Kmeans {
         // set number of bulk iterations for KMeans algorithm
         IterativeDataSet<Vector> loop = centroids.iterate(params.getInt("iterations", 10));
 
-
         DataSet<Vector> newCentroids = points
                 // compute closest centroid for each point
                 .map(new SelectNearestCenter()).withBroadcastSet(loop, "centroids")
@@ -86,11 +85,9 @@ public class Kmeans {
                     out.append(" ");
                     out.append(value.f1.apply(i));
                 }
-
                 return out.toString();
             }
         });
-
         // emit result
         if (params.has("output")) {
             clusteredPoints.writeAsCsv(params.get("output"), "\n", " ");
@@ -108,9 +105,7 @@ public class Kmeans {
      */
     @FunctionAnnotation.ForwardedFields("*->1")
     public static final class SelectNearestCenter extends RichMapFunction<Vector, Tuple2<Integer, Vector>> {
-
         private Collection<Vector> centroids;
-
         /**
          * Reads the centroid values from a broadcast variable into a collection.
          */
@@ -142,7 +137,6 @@ public class Kmeans {
                     closestCentroidId = position;
                 }
             }
-
             // emit a new record with the center id and the data point.
             return new Tuple2<Integer, Vector>(closestCentroidId, p);
         }
@@ -153,7 +147,6 @@ public class Kmeans {
      */
     @FunctionAnnotation.ForwardedFields("f0;f1")
     public static final class CountAppender implements MapFunction<Tuple2<Integer, Vector>, Tuple3<Integer, Vector, Long>> {
-
         @Override
         public Tuple3<Integer, Vector, Long> map(Tuple2<Integer, Vector> t) {
             return new Tuple3<Integer, Vector, Long>(t.f0, t.f1, 1L);
@@ -165,7 +158,6 @@ public class Kmeans {
      */
     @FunctionAnnotation.ForwardedFields("0")
     public static final class CentroidAccumulator implements ReduceFunction<Tuple3<Integer, Vector, Long>> {
-
         @Override
         public Tuple3<Integer, Vector, Long> reduce(Tuple3<Integer, Vector, Long> val1, Tuple3<Integer, Vector, Long> val2) {
 
@@ -174,9 +166,7 @@ public class Kmeans {
         }
 
         private Vector addVectors(Vector v1, Vector v2) {
-
             double fields[] = new double[v1.size()];
-
             for (int i = 0; i < v1.size(); i++) {
                 fields[i] = v1.apply(i) + v2.apply(i);
             }
@@ -197,9 +187,7 @@ public class Kmeans {
         }
 
         private Vector divideVectorByScalar(Vector v, Long s) {
-
             double fields[] = new double[v.size()];
-
             for (int i = 0; i < v.size(); i++) {
                 fields[i] = v.apply(i) / s;
             }
