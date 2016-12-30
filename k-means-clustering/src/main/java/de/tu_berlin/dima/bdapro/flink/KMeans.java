@@ -19,10 +19,11 @@ import java.util.Collection;
 
 /**
  * Created by zis on 04/12/16.
+ * Sample parameters: --input k-means-clustering/src/main/resources/kmeans_input.txt --k 2 --iterations 20
  */
-public class KmeansWithConvergence {
+public class Kmeans {
     public static void main(String[] args) throws Exception {
-        // TODO: check input parameters
+
         // Checking input parameters
         final ParameterTool params = ParameterTool.fromArgs(args);
         if (!params.has("input")) throw new Exception();
@@ -38,9 +39,11 @@ public class KmeansWithConvergence {
                 .map(new VectorizedData());
 
         // get the number of clusters
-        int k = Integer.parseInt(params.get("k"));
+        int k = params.getInt("k", 2);
         // get the number of iterations;
-        int maxIter = Integer.parseInt(params.get("iterations"), 10);
+        int maxIter = params.getInt("iterations", 10);
+        // get the threshold for convergence
+        double threshold = params.getDouble("threshold" ,0.0);
 
         // derive initial cluster centres randomly from input vectors
         DataSet<Tuple2<Integer, Vector>> centroids = DataSetUtils
@@ -71,7 +74,7 @@ public class KmeansWithConvergence {
 
         //Evaluate whether the cluster centres are converged (if so, return empy data set)
         DataSet<Tuple2<Integer, Vector>> terminationSet = compareSet
-                .flatMap(new ConvergenceEvaluator());
+                .flatMap(new ConvergenceEvaluator(threshold));
 
         // feed new centroids back into next iteration
         // If all the clusters are converged, iteration will stop
@@ -212,9 +215,15 @@ public class KmeansWithConvergence {
     }
 
     private static class ConvergenceEvaluator implements FlatMapFunction<Tuple2<Tuple2<Integer, Vector>, Tuple2<Integer, Vector>>, Tuple2<Integer, Vector>> {
+
+        private double threshold;
+
+        public ConvergenceEvaluator(double threshold) {
+            this.threshold = threshold;
+        }
+
         @Override
         public void flatMap(Tuple2<Tuple2<Integer, Vector>, Tuple2<Integer, Vector>> val, Collector<Tuple2<Integer, Vector>> collector) throws Exception {
-            double threshold = 0;
             if (!evaluateConvergence(val.f0.f1, val.f1.f1, threshold)){
                 collector.collect(val.f0);
             }
