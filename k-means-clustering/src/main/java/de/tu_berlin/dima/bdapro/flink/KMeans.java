@@ -1,5 +1,6 @@
 package de.tu_berlin.dima.bdapro.flink;
 
+import de.tu_berlin.dima.bdapro.util.Constants;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
@@ -88,7 +89,7 @@ public class KMeans {
 
         // emit result
         if (params.has("output")) {
-            result.writeAsCsv(params.get("output"), "\n", " ");
+            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER);
             // since file sinks are lazy, we trigger the execution explicitly
             env.execute("kMeans Clustering");
         } else {
