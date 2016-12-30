@@ -19,14 +19,14 @@ import java.util.Collection;
 
 /**
  * Created by zis on 04/12/16.
- * Sample parameters: --input k-means-clustering/src/main/resources/kmeans_input.txt --k 2 --iterations 20
+ * Usage: --input k-means-clustering/src/main/resources/kmeans_input.txt --output /tmp/test --k 2 --iterations 20
  */
-public class Kmeans {
+public class KMeans {
     public static void main(String[] args) throws Exception {
 
         // Checking input parameters
         final ParameterTool params = ParameterTool.fromArgs(args);
-        if (!params.has("input")) throw new Exception();
+        if (!params.has("input")) throw new Exception("Input Data is not specified");
 
         // set up execution environment
         ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
@@ -50,11 +50,11 @@ public class Kmeans {
                 .sampleWithSize(points, false, k, Long.MAX_VALUE)
                 .reduceGroup(new CentroidLabeler());
 
-        // Use Bulk iteration specifying max possible itrations
+        // Use Bulk iteration specifying max possible iterations
         // If the clusters converge before that, the iteration will stop.
         IterativeDataSet<Tuple2<Integer, Vector>> loop = centroids.iterate(maxIter);
 
-        // Execution of the Kmeans algorithm
+        // Execution of the kMeans algorithm
         DataSet<Tuple2<Integer, Vector>> newCentroids = points
                 // compute closest centroid for each point
                 .map(new SelectNearestCenter()).withBroadcastSet(loop, "centroids")
@@ -81,7 +81,8 @@ public class Kmeans {
         DataSet<Tuple2<Integer, Vector>> finalCentroids = loop.closeWith(newCentroids, terminationSet);
 
         // assign points to final clusters
-        DataSet<String> result = points
+
+        DataSet<Tuple2<Integer, String>> result = points
                 .map(new SelectNearestCenter()).withBroadcastSet(finalCentroids, "centroids")
                 .map(new KMeansOutputFormat());
 
@@ -89,7 +90,7 @@ public class Kmeans {
         if (params.has("output")) {
             result.writeAsCsv(params.get("output"), "\n", " ");
             // since file sinks are lazy, we trigger the execution explicitly
-            env.execute("KMeans Clustering");
+            env.execute("kMeans Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             result.print();
@@ -178,6 +179,10 @@ public class Kmeans {
         }
     }
 
+    /**
+     *  Label the cluster centres from 0 to (k-1)
+     */
+
     private static class CentroidLabeler implements GroupReduceFunction<Vector, Tuple2<Integer, Vector>> {
         @Override
         public void reduce(Iterable<Vector> iterable, Collector<Tuple2<Integer, Vector>> collector) throws Exception {
@@ -188,10 +193,14 @@ public class Kmeans {
         }
     }
 
+    /**
+     * Create vector data from the input record
+     */
+
     private static class VectorizedData implements MapFunction<String, Vector> {
         @Override
         public Vector map(String value) {
-            String fileds[] = value.split(" ");
+            String fileds[] = value.split(Constants.DELIMITER);
             double[] fieldVals = new double[fileds.length];
             for (int i = 0; i < fileds.length; i++) {
                 fieldVals[i] = Double.parseDouble(fileds[i]);
@@ -201,18 +210,24 @@ public class Kmeans {
         }
     }
 
-    private static class KMeansOutputFormat implements MapFunction<Tuple2<Integer, Vector>, String> {
+    /**
+     * Convert the vector data to desired String representation
+     */
+    private static class KMeansOutputFormat implements MapFunction<Tuple2<Integer, Vector>, Tuple2<Integer, String>> {
         @Override
-        public String map(Tuple2<Integer, Vector> value) throws Exception {
+        public Tuple2<Integer, String> map(Tuple2<Integer, Vector> value) throws Exception {
             StringBuilder out = new StringBuilder();
-            out.append(value.f0);
             for (int i = 0; i < value.f1.size(); i++) {
-                out.append(" ");
+                out.append(Constants.DELIMITER);
                 out.append(value.f1.apply(i));
             }
-            return out.toString();
+            return new Tuple2(value.f0,out.toString());
         }
     }
+
+    /**
+     *  Check if the clusters are converged, based on the provided threshold
+     */
 
     private static class ConvergenceEvaluator implements FlatMapFunction<Tuple2<Tuple2<Integer, Vector>, Tuple2<Integer, Vector>>, Tuple2<Integer, Vector>> {
 
