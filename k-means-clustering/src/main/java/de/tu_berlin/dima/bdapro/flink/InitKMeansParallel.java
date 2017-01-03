@@ -2,19 +2,21 @@ package de.tu_berlin.dima.bdapro.flink;
 
 import de.tu_berlin.dima.bdapro.util.Constants;
 import de.tu_berlin.dima.bdapro.util.UDFs;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.IterativeDataSet;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.DataSetUtils;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.ml.math.Vector;
 
 /**
- * Created by zis on 04/12/16.
- * Usage: --input k-means-clustering/src/main/resources/kmeans_input.txt --output /tmp/test --k 2 --iterations 20
+ * Created by zis on 30/12/16.
  */
-public class KMeans {
+public class InitKMeansParallel {
+
     public static void main(String[] args) throws Exception {
 
         // Checking input parameters
@@ -28,22 +30,76 @@ public class KMeans {
         env.getConfig().setGlobalJobParameters(params);
 
         // get input data:
-        DataSet<Vector> points = env.readTextFile(params.get("input"))
+        DataSet<Vector> points = env
+                .readTextFile(params.get("input"))
                 .map(new UDFs.VectorizedData());
 
         // get the number of clusters
         int k = params.getInt("k", 2);
 
+        // get value of oversampling factor
+        int l = params.getInt("l", 2 * k);
+
         // get the number of iterations;
         int maxIter = params.getInt("iterations", 10);
 
-        // get the threshold for convergence
-        double threshold = params.getDouble("threshold" ,0.0);
+        // get the number of initialization steps to perform
+        int initializationSteps = params.getInt("initializationSteps", 2);
 
-        // derive initial cluster centres randomly from input vectors
-        DataSet<Tuple2<Integer, Vector>> centroids = DataSetUtils
-                .sampleWithSize(points, false, k, Long.MAX_VALUE)
+        // get the threshold for convergence
+        double threshold = params.getDouble("threshold", 0.0);
+
+        // derive initial cluster centre randomly from input vectors, and add to centres dataset
+        DataSet<Vector> centres = DataSetUtils
+                .sampleWithSize(points, false, 1, Long.MAX_VALUE);
+
+        // Perform Iterations for the given initializationSteps. Usually 2 is enough
+        IterativeDataSet<Vector> chosen = centres.iterate(initializationSteps);
+
+        // Calculate the cost for each data point
+        DataSet<Tuple2<Vector, Double>> pointCosts = points
+                .map(new UDFs.CostFinder()).withBroadcastSet(chosen, "centroids");
+
+        // Calculate the sum of costs
+        DataSet<Tuple2<Vector, Double>> sumCosts = pointCosts.sum(1);
+
+        DataSet<Vector> newCentres = pointCosts
+                .filter(new UDFs.ProbabilitySamplingFilter(l, Long.MAX_VALUE)).withBroadcastSet(sumCosts, "sumCosts")
+                .map(new MapFunction<Tuple2<Vector, Double>, Vector>() {
+                    @Override
+                    public Vector map(Tuple2<Vector, Double> pointCost) throws Exception {
+                        return pointCost.f0;
+                    }
+                });
+
+        // Update the centres
+        centres = chosen.union(newCentres);
+
+        // Close the iterative step with updated centres
+        DataSet<Vector> finalCentres = chosen.closeWith(centres);
+
+        // Label the centroids from 0 to n
+        DataSet<Tuple2<Integer, Vector>> labeledCentres = finalCentres
                 .reduceGroup(new UDFs.CentroidLabeler());
+
+        // Calculate the weights for each centre, as the number of points
+        // for which the centre is identified as the closest centre.
+
+        DataSet<Tuple3<Integer, Vector, Long>> weightedPoints = points
+                .map(new UDFs.SelectNearestCenter()).withBroadcastSet(labeledCentres, "centroids")
+                .map(new UDFs.CountAppender())
+                .groupBy(0)
+                .sum(2);
+
+        // Apply kMeans++ to select k centres from the kMeans|| result set.
+        // Since the number of points will be ~ (2*k), a single reduceGroup is enough to perform kmeans++
+
+        DataSet<Tuple2<Integer, Vector>> centroids = weightedPoints
+                .reduceGroup(new UDFs.LocalKMeans(k, maxIter))
+                .reduceGroup(new UDFs.CentroidLabeler());
+
+
+        // Perform Lloyd's algorithm on the entire data set
 
         // Use Bulk iteration specifying max possible iterations
         // If the clusters converge before that, the iteration will stop.
@@ -84,7 +140,7 @@ public class KMeans {
         if (params.has("output")) {
             result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER);
             // since file sinks are lazy, we trigger the execution explicitly
-            env.execute("kMeans Clustering");
+            env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             result.print();
