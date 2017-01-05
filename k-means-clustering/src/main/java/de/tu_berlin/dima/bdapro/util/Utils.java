@@ -1,4 +1,4 @@
-package de.tu_berlin.dima.bdapro.flink;
+package de.tu_berlin.dima.bdapro.util;
 
 import org.apache.flink.ml.math.Vector;
 

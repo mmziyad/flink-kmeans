@@ -15,6 +15,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.ml.math.DenseVector;
 import org.apache.flink.ml.math.Vector;
 import org.apache.flink.ml.metrics.distances.SquaredEuclideanDistanceMetric;
+import de.tu_berlin.dima.bdapro.util.Utils;
 
 import java.util.Collection;
 
