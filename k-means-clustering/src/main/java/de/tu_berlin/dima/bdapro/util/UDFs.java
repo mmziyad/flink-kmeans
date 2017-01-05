@@ -29,8 +29,7 @@ public class UDFs {
             for (int i = 0; i < fields.length; i++) {
                 fieldVals[i] = Double.parseDouble(fields[i]);
             }
-            Vector point = new DenseVector(fieldVals);
-            return point;
+            return new DenseVector(fieldVals);
         }
     }
 
@@ -50,20 +49,21 @@ public class UDFs {
     /**
      * Determines the closest cluster center for a data point.
      */
-    public static final class SelectNearestCenter extends RichMapFunction<Vector, Tuple3<Integer, Vector, Vector>> {
+    public static final class SelectNearestCenter extends RichMapFunction<Vector, Tuple2<Integer, Vector>> {
         private Collection<Tuple2<Integer, Vector>> centroids;
+        private SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric;
 
         // Reads the centroid values from a broadcast variable into a collection
         @Override
         public void open(Configuration parameters) throws Exception {
             this.centroids = getRuntimeContext().getBroadcastVariable("centroids");
+            squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
         }
+
         @Override
-        public Tuple3<Integer, Vector, Vector> map(Vector p) throws Exception {
+        public Tuple2<Integer, Vector> map(Vector p) throws Exception {
             double minDistance = Double.MAX_VALUE;
-            SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
             int closestCentroidId = -1;
-            Vector closestCendroid = null;
             // check all cluster centers
             for (Tuple2<Integer, Vector> centroid : centroids) {
                 // compute distance, using SquaredEuclideanDistanceMetric
@@ -73,11 +73,10 @@ public class UDFs {
                 if (distance < minDistance) {
                     minDistance = distance;
                     closestCentroidId = centroid.f0;
-                    closestCendroid = centroid.f1;
                 }
             }
             // emit a new record with the center id and the data point.
-            return new Tuple3<Integer, Vector, Vector>(closestCentroidId, closestCendroid, p);
+            return new Tuple2<>(closestCentroidId, p);
         }
     }
 
@@ -85,10 +84,10 @@ public class UDFs {
      * Appends a count variable to the tuple.
      */
     @FunctionAnnotation.ForwardedFields("f0;f1")
-    public static final class CountAppender implements MapFunction<Tuple3<Integer, Vector, Vector>, Tuple3<Integer, Vector, Long>> {
+    public static final class CountAppender implements MapFunction<Tuple2<Integer, Vector>, Tuple3<Integer, Vector, Long>> {
         @Override
-        public Tuple3<Integer, Vector, Long> map(Tuple3<Integer, Vector, Vector> t) {
-            return new Tuple3<Integer, Vector, Long>(t.f0, t.f2, 1L);
+        public Tuple3<Integer, Vector, Long> map(Tuple2<Integer, Vector> t) {
+            return new Tuple3<>(t.f0, t.f1, 1L);
         }
     }
 
@@ -98,17 +97,19 @@ public class UDFs {
     public static class CostFinder extends RichMapFunction<Vector, Tuple2<Vector, Double>> {
 
         private Collection<Vector> centroids;
+        SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric;
 
         // Reads the centroid values from a broadcast variable into a collection
         @Override
         public void open(Configuration parameters) throws Exception {
             this.centroids = getRuntimeContext().getBroadcastVariable("centroids");
+            squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
         }
 
         @Override
         public Tuple2<Vector, Double> map(Vector p) throws Exception {
             double minDistance = Double.MAX_VALUE;
-            SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
+
             // check all cluster centers
             for (Vector centroid : centroids) {
                 // compute distance, using SquaredEuclideanDistanceMetric
@@ -120,7 +121,7 @@ public class UDFs {
                 }
             }
             // emit a new record with the data point and calculated cost
-            return new Tuple2(p, minDistance);
+            return new Tuple2<>(p, minDistance);
         }
     }
 
@@ -149,7 +150,7 @@ public class UDFs {
 
         @Override
         public boolean filter(Tuple2<Vector, Double> pointCost) throws Exception {
-            return this.random.nextDouble() < (this.overSamplingFactor * pointCost.f1 / sumCosts) ? true : false;
+            return this.random.nextDouble() < (this.overSamplingFactor * pointCost.f1 / sumCosts);
         }
     }
 
@@ -159,15 +160,15 @@ public class UDFs {
     public static final class CentroidAccumulator implements ReduceFunction<Tuple3<Integer, Vector, Long>> {
         @Override
         public Tuple3<Integer, Vector, Long> reduce(Tuple3<Integer, Vector, Long> val1, Tuple3<Integer, Vector, Long> val2) {
-            return new Tuple3<Integer, Vector, Long>(val1.f0, addVectors(val1.f1, val2.f1), val1.f2 + val2.f2);
+            return new Tuple3<>(val1.f0, addVectors(val1.f1, val2.f1), val1.f2 + val2.f2);
+
         }
 
         private Vector addVectors(Vector v1, Vector v2) {
-            double fields[] = new double[v1.size()];
             for (int i = 0; i < v1.size(); i++) {
-                fields[i] = v1.apply(i) + v2.apply(i);
+                v1.update(i, v1.apply(i) + v2.apply(i));
             }
-            return new DenseVector(fields);
+            return v1;
         }
     }
 
@@ -181,26 +182,25 @@ public class UDFs {
         }
 
         private Vector divideVectorByScalar(Vector v, Long s) {
-            double fields[] = new double[v.size()];
             for (int i = 0; i < v.size(); i++) {
-                fields[i] = v.apply(i) / s;
+                v.update(i, v.apply(i) / s);
             }
-            return new DenseVector(fields);
+            return v;
         }
     }
 
     /**
      * Convert the vector data to desired String representation
      */
-    public static class KMeansOutputFormat implements MapFunction<Tuple3<Integer, Vector, Vector>, Tuple2<Integer, String>> {
+    public static class KMeansOutputFormat implements MapFunction<Tuple2<Integer, Vector>, Tuple2<Integer, String>> {
         @Override
-        public Tuple2<Integer, String> map(Tuple3<Integer, Vector, Vector> value) throws Exception {
+        public Tuple2<Integer, String> map(Tuple2<Integer, Vector> value) throws Exception {
             StringBuilder out = new StringBuilder();
-            for (int i = 0; i < value.f2.size(); i++) {
+            for (int i = 0; i < value.f1.size(); i++) {
                 out.append(Constants.DELIMITER);
-                out.append(value.f2.apply(i));
+                out.append(value.f1.apply(i));
             }
-            return new Tuple2(value.f0, out.toString());
+            return new Tuple2<>(value.f0, out.toString());
         }
     }
 
@@ -210,18 +210,21 @@ public class UDFs {
     public static class ConvergenceEvaluator implements FlatMapFunction<Tuple2<Tuple2<Integer, Vector>, Tuple2<Integer, Vector>>, Tuple2<Integer, Vector>> {
 
         private double threshold;
+        private SquaredEuclideanDistanceMetric distanceMetric;
+
+
         public ConvergenceEvaluator(double threshold) {
             this.threshold = threshold;
+            distanceMetric = new SquaredEuclideanDistanceMetric();
         }
 
         @Override
         public void flatMap(Tuple2<Tuple2<Integer, Vector>, Tuple2<Integer, Vector>> val, Collector<Tuple2<Integer, Vector>> collector) throws Exception {
-            if (!evaluateConvergence(val.f0.f1, val.f1.f1, threshold)) {
+            if (!evaluateConvergence(val.f0.f1, val.f1.f1, threshold , distanceMetric)) {
                 collector.collect(val.f0);
             }
         }
-        private boolean evaluateConvergence(Vector v1, Vector v2, double threshold) {
-            SquaredEuclideanDistanceMetric distanceMetric = new SquaredEuclideanDistanceMetric();
+        private boolean evaluateConvergence(Vector v1, Vector v2, double threshold,SquaredEuclideanDistanceMetric distanceMetric ) {
             return (distanceMetric.distance(v1, v2) <= threshold * threshold);
         }
     }
@@ -236,24 +239,23 @@ public class UDFs {
         private int maxIter;
         private Random random;
         private int dimensions;
+        private SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric;
 
         public LocalKMeans(int k, int maxIter) {
             this.k = k;
             this.maxIter = maxIter;
             this.random = new Random(Long.MAX_VALUE);
+            squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
         }
 
         @Override
         public void reduce(Iterable<Tuple3<Integer, Vector, Long>> iterable, Collector<Vector> collector) throws Exception {
 
             // Identify initial k centres using kmeans ++
-
-            List<Vector> points = new ArrayList<Vector>();
-            List<Long> weights = new ArrayList<Long>();
-            List<Double> costs = new ArrayList<Double>();
+            List<Vector> points = new ArrayList<>();
+            List<Long> weights = new ArrayList<>();
+            List<Double> costs = new ArrayList<>();
             Vector centres[] = new Vector[k];
-
-            SquaredEuclideanDistanceMetric squaredEuclideanDistanceMetric = new SquaredEuclideanDistanceMetric();
 
             for (Tuple3 val : iterable) {
                 points.add((Vector) val.f1);
@@ -261,8 +263,6 @@ public class UDFs {
             }
 
             dimensions = points.get(0).size();
-            System.out.println("Dimensions = " + dimensions);
-
             Vector initialCentre = getInitialCentre(points, weights);
             centres[0] = initialCentre;
 
@@ -290,7 +290,7 @@ public class UDFs {
                 }
 
                 for (int index = 0; index < points.size(); index++) {
-                    costs.add(index, Math.min(squaredEuclideanDistanceMetric.distance(points.get(i), centres[i]), costs.get(index)));
+                    costs.set(index, Math.min(squaredEuclideanDistanceMetric.distance(points.get(index), centres[i]), costs.get(index)));
 
                 }
             }
@@ -298,23 +298,23 @@ public class UDFs {
             // Perform Lloyd's algorithm iterations
 
             for (int iteration = 0; iteration < maxIter; iteration++) {
-                Map<Vector, List<Vector>> clusterMembers = new HashMap<Vector, List<Vector>>();
-                for (int i = 0; i < centres.length; i++) {
-                    clusterMembers.put(centres[i], new ArrayList<Vector>());
+                Map<Vector, List<Vector>> clusterMembers = new HashMap<>();
+                for (Vector centre : centres) {
+                    clusterMembers.put(centre, new ArrayList<>());
                 }
-                for (int i = 0; i < points.size(); i++) {
+                for (Vector point : points) {
                     double minDistance = Double.MAX_VALUE;
                     Vector correctCentre = null;
-                    for (int j = 0; j < centres.length; j++) {
-                        double distance = squaredEuclideanDistanceMetric.distance(points.get(i), centres[j]);
+                    for (Vector centre : centres) {
+                        double distance = squaredEuclideanDistanceMetric.distance(point, centre);
                         if (distance < minDistance) {
                             minDistance = distance;
-                            correctCentre = centres[j];
+                            correctCentre = centre;
                         }
                     }
-                    clusterMembers.get(correctCentre).add(points.get(i));
+                    clusterMembers.get(correctCentre).add(point);
                 }
-                for (int i = 0; i < centres.length; i++) {
+                for (int i = 0; i < k; i++) {
                     centres[i] = findCentroidOfVectors(clusterMembers.get(centres[i]), dimensions);
 
                 }
@@ -328,35 +328,27 @@ public class UDFs {
 
         /**
          * Find the centroid of given vectors
-         *
-         * @param vectors
-         * @param dimensions
-         * @return centroidVector
          */
         private Vector findCentroidOfVectors(List<Vector> vectors, int dimensions) {
 
             int size = vectors.size();
             double fields[] = new double[dimensions];
-            Vector cnetroidVector = new DenseVector(fields);
+            Vector centroidVector = new DenseVector(fields);
 
             for (Vector v : vectors) {
                 for (int i = 0; i < v.size(); i++) {
-                    cnetroidVector.update(i, cnetroidVector.apply(i) + v.apply(i));
+                    centroidVector.update(i, centroidVector.apply(i) + v.apply(i));
                 }
             }
 
-            for (int i = 0; i < cnetroidVector.size(); i++) {
-                cnetroidVector.update(i, cnetroidVector.apply(i) / size);
+            for (int i = 0; i < centroidVector.size(); i++) {
+                centroidVector.update(i, centroidVector.apply(i) / size);
             }
-            return cnetroidVector;
+            return centroidVector;
         }
 
         /**
          * Get the initial centre from the weighted points
-         *
-         * @param points
-         * @param weights
-         * @return initialCentre
          */
         private Vector getInitialCentre(List<Vector> points, List<Long> weights) {
             long sumOfWeights = 0;

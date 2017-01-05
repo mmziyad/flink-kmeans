@@ -10,6 +10,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.DataSetUtils;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.ml.math.Vector;
 
 /**
@@ -71,7 +72,6 @@ public class InitKMeansParallel {
                         return pointCost.f0;
                     }
                 });
-
         // Update the centres
         centres = chosen.union(newCentres);
 
@@ -92,7 +92,7 @@ public class InitKMeansParallel {
                 .sum(2);
 
         // Apply kMeans++ to select k centres from the kMeans|| result set.
-        // Since the number of points will be ~ (2*k), a single reduceGroup is enough to perform kmeans++
+        // Since the number of points will be ~ (2*k), a single reduceGroup is enough to perform kMeans++
 
         DataSet<Tuple2<Integer, Vector>> centroids = weightedPoints
                 .reduceGroup(new UDFs.LocalKMeans(k, maxIter))
@@ -138,11 +138,12 @@ public class InitKMeansParallel {
 
         // emit result
         if (params.has("output")) {
-            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER);
-            // since file sinks are lazy, we trigger the execution explicitly
+            //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
             env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
+            //finalCentroids.print();
             result.print();
         }
     }

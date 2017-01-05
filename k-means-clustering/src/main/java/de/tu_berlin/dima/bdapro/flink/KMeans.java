@@ -8,6 +8,7 @@ import org.apache.flink.api.java.operators.IterativeDataSet;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.DataSetUtils;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.ml.math.Vector;
 
 /**
@@ -82,11 +83,13 @@ public class KMeans {
 
         // emit result
         if (params.has("output")) {
-            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER);
+            //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
             // since file sinks are lazy, we trigger the execution explicitly
             env.execute("kMeans Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
+            //finalCentroids.print();
             result.print();
         }
     }
