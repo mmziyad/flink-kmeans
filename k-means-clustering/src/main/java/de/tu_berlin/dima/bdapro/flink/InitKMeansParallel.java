@@ -50,7 +50,7 @@ public class InitKMeansParallel {
         int initializationSteps = params.getInt("initializationSteps", 2);
 
         // get the threshold for convergence
-        double threshold = params.getDouble("threshold", 0.0);
+        double threshold = params.getDouble("threshold", 0);
 
         // get input data:
         DataSet<Point> points = env
@@ -145,12 +145,12 @@ public class InitKMeansParallel {
         // emit result
         if (params.has("output")) {
             //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
             env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             //finalCentroids.print();
-            finalCentroids.print();
+            result.print();
         }
     }
 }

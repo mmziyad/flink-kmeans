@@ -249,7 +249,6 @@ public class UDFs {
                 } else {
                     centres[i] = points.get(j - 1);
                 }
-
                 for (int index = 0; index < points.size(); index++) {
                     costs.set(index, Math.min(points.get(index).squaredDistance(centres[i]), costs.get(index)));
                 }
@@ -273,6 +272,8 @@ public class UDFs {
                     }
                     clusterMembers.get(correctCentre).add(point);
                 }
+
+
                 for (int i = 0; i < k; i++) {
                     centres[i] = findCentroidOfPoints(clusterMembers.get(centres[i]), dimensions);
 
@@ -288,13 +289,11 @@ public class UDFs {
          * Find the centroid of given Points
          */
         private Point findCentroidOfPoints(List<Point> points, int dimensions) {
-
             Point centroid = new Point(dimensions);
             for (Point p : points) {
-                centroid.add(p);
+                centroid = centroid.add(p);
             }
-            centroid.divideByScalar(dimensions);
-            return centroid;
+            return centroid.divideByScalar(points.size());
         }
 
         /**

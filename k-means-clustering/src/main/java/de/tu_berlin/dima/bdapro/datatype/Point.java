@@ -8,12 +8,14 @@ import java.util.Arrays;
  */
 public class Point implements Serializable {
 
-    private int dimensions;
     private double fields[];
 
     public Point(int dimensions) {
-        this.dimensions = dimensions;
         this.fields = new double[dimensions];
+    }
+
+    public Point(double fields[]) {
+        this.fields = fields;
     }
 
     public double[] getFields() {
@@ -26,24 +28,26 @@ public class Point implements Serializable {
 
     public double squaredDistance(Point other) {
         double distance = 0;
-        for (int i = 0; i < dimensions; i++) {
+        for (int i = 0; i < fields.length; i++) {
             distance += (fields[i] - other.fields[i]) * (fields[i] - other.fields[i]);
         }
         return distance;
     }
 
     public Point add (Point other){
-        for (int i = 0; i < dimensions; i++) {
-            fields[i] += other.fields[i];
+        double data [] = fields.clone();
+        for (int i = 0; i < fields.length; i++) {
+            data[i] =  fields[i] + other.fields[i];
         }
-        return this;
+        return new Point(data);
     }
 
     public Point divideByScalar (long val){
-        for (int i = 0; i < dimensions; i++) {
-            fields[i] /= val;
+        double data [] = fields.clone();
+        for (int i = 0; i < fields.length; i++) {
+            data[i]  = fields[i]/val;
         }
-        return this;
+        return new Point(data);
     }
 
     @Override

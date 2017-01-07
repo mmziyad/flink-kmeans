@@ -40,7 +40,7 @@ public class KMeans {
         int maxIter = params.getInt("iterations", 10);
 
         // get the threshold for convergence
-        double threshold = params.getDouble("threshold", 0.0);
+        double threshold = params.getDouble("threshold", 0);
 
         // get input data:
         DataSet<Point> points = env.readTextFile(params.get("input"))
