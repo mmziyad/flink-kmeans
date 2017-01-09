@@ -1,13 +1,13 @@
 package de.tu_berlin.dima.bdapro.util;
 
-import org.apache.flink.ml.math.Vector;
+import de.tu_berlin.dima.bdapro.datatype.Point;
 
 import java.io.*;
 
 /**
  * Created by JML on 12/10/16.
  */
-public final class Utils {
+public class Utils {
 
     public static void mergeFile(String inputDir, String outputFile) throws Exception{
         File dir = new File(inputDir);
@@ -27,10 +27,10 @@ public final class Utils {
         }
     }
 
-    public static String vectorToCustomString(Vector vector){
+    public static String vectorToCustomString(Point vector){
         StringBuilder result = new StringBuilder();
-        for (int i = 0; i < vector.size(); i++) {
-            result.append(vector.apply(i));
+        for (int i = 0; i < vector.getFields().length; i++) {
+            result.append(vector.getFields()[i]);
             result.append(" ");
         }
         return result.toString();
