@@ -5,5 +5,6 @@ package de.tu_berlin.dima.bdapro.util;
  */
 public class Constants {
 
-    public static String DELIMITER = " ";
+    public static final String OUT_DELIMITER = ";" ;
+    public static String IN_DELIMITER = " ";
 }

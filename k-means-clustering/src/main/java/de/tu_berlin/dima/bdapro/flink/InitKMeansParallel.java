@@ -1,5 +1,6 @@
 package de.tu_berlin.dima.bdapro.flink;
 
+import de.tu_berlin.dima.bdapro.datatype.Centroid;
 import de.tu_berlin.dima.bdapro.datatype.Point;
 import de.tu_berlin.dima.bdapro.util.Constants;
 import de.tu_berlin.dima.bdapro.util.UDFs;
@@ -27,7 +28,6 @@ public class InitKMeansParallel {
         if (!params.has("d"))
             throw new Exception("No of Dimensions is not specified");
 
-
         // set up execution environment
         ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
@@ -51,6 +51,9 @@ public class InitKMeansParallel {
 
         // get the threshold for convergence
         double threshold = params.getDouble("threshold", 0);
+
+        // get the convergence condition
+        boolean convergence = params.getBoolean("convergence", false);
 
         // get input data:
         DataSet<Point> points = env
@@ -86,7 +89,7 @@ public class InitKMeansParallel {
         DataSet<Point> finalCentres = chosen.closeWith(centres);
 
         // Label the centroids from 0 to n
-        DataSet<Tuple2<Integer, Point>> labeledCentres = finalCentres
+        DataSet<Centroid> labeledCentres = finalCentres
                 .reduceGroup(new UDFs.CentroidLabeler());
 
         // Calculate the weights for each centre, as the number of points
@@ -101,19 +104,18 @@ public class InitKMeansParallel {
         // Apply kMeans++ to select k centres from the kMeans|| result set.
         // Since the number of points will be ~ (2*k), a single reduceGroup is enough to perform kMeans++
 
-        DataSet<Tuple2<Integer, Point>> centroids = weightedPoints
-                .reduceGroup(new UDFs.LocalKMeans(d, k, maxIter))
+        DataSet<Centroid> centroids = weightedPoints
+                .reduceGroup(new LocalKMeans(d, k, maxIter))
                 .reduceGroup(new UDFs.CentroidLabeler());
-
 
         // Perform Lloyd's algorithm on the entire data set
 
         // Use Bulk iteration specifying max possible iterations
         // If the clusters converge before that, the iteration will stop.
-        IterativeDataSet<Tuple2<Integer, Point>> loop = centroids.iterate(maxIter);
+        IterativeDataSet<Centroid> loop = centroids.iterate(maxIter);
 
         // Execution of the kMeans algorithm
-        DataSet<Tuple2<Integer, Point>> newCentroids = points
+        DataSet<Centroid> newCentroids = points
                 // compute closest centroid for each point
                 .map(new UDFs.SelectNearestCenter()).withBroadcastSet(loop, "centroids")
                 // count and sum point coordinates for each centroid
@@ -124,19 +126,25 @@ public class InitKMeansParallel {
                 // compute new centroids from point counts and coordinate sums
                 .map(new UDFs.CentroidAverager());
 
-        // Join the new centroid dataset with the previous centroids
-        DataSet<Tuple2<Tuple2<Integer, Point>, Tuple2<Integer, Point>>> compareSet = newCentroids
-                .join(loop)
-                .where(0)
-                .equalTo(0);
+        DataSet<Centroid> finalCentroids;
 
-        //Evaluate whether the cluster centres are converged (if so, return empy data set)
-        DataSet<Tuple2<Integer, Point>> terminationSet = compareSet
-                .flatMap(new UDFs.ConvergenceEvaluator(threshold));
+        if (convergence) {
+            // Join the new centroid dataset with the previous centroids
+            DataSet<Tuple2<Centroid, Centroid>> compareSet = newCentroids
+                    .join(loop)
+                    .where("id")
+                    .equalTo("id");
 
-        // feed new centroids back into next iteration
-        // If all the clusters are converged, iteration will stop
-        DataSet<Tuple2<Integer, Point>> finalCentroids = loop.closeWith(newCentroids, terminationSet);
+            //Evaluate whether the cluster centres are converged (if so, return empy data set)
+            DataSet<Centroid> terminationSet = compareSet
+                    .flatMap(new UDFs.ConvergenceEvaluator(threshold));
+
+            // feed new centroids back into next iteration
+            // If all the clusters are converged, iteration will stop
+            finalCentroids = loop.closeWith(newCentroids, terminationSet);
+        } else {
+            finalCentroids = loop.closeWith(newCentroids);
+        }
 
         // assign points to final clusters
         DataSet<Tuple2<Integer, Point>> result = points
@@ -145,7 +153,7 @@ public class InitKMeansParallel {
         // emit result
         if (params.has("output")) {
             //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            result.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            result.writeAsCsv(params.get("output"), "\n", Constants.OUT_DELIMITER, FileSystem.WriteMode.OVERWRITE);
             env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");

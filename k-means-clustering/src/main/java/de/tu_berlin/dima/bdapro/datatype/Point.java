@@ -10,6 +10,8 @@ public class Point implements Serializable {
 
     private double fields[];
 
+    public Point() {}
+
     public Point(int dimensions) {
         this.fields = new double[dimensions];
     }
@@ -34,20 +36,26 @@ public class Point implements Serializable {
         return distance;
     }
 
-    public Point add (Point other){
-        double data [] = fields.clone();
+    public double euclideanDistance(Point other) {
+        double distance = 0;
         for (int i = 0; i < fields.length; i++) {
-            data[i] =  fields[i] + other.fields[i];
+            distance += (fields[i] - other.fields[i]) * (fields[i] - other.fields[i]);
         }
-        return new Point(data);
+        return Math.sqrt(distance);
+    }
+
+    public Point add (Point other){
+        for (int i = 0; i < fields.length; i++) {
+            fields[i] += other.fields[i];
+        }
+        return this;
     }
 
     public Point divideByScalar (long val){
-        double data [] = fields.clone();
         for (int i = 0; i < fields.length; i++) {
-            data[i]  = fields[i]/val;
+            fields[i] /= val;
         }
-        return new Point(data);
+        return this;
     }
 
     @Override
