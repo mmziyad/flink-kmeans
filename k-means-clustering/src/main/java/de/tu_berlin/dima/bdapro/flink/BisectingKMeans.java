@@ -104,13 +104,20 @@ public class BisectingKMeans {
         // emit result
         if (outputDir != null || !outputDir.isEmpty()) {
             //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            dataPoints.map(new MapFunction<IndexedPoint, Tuple2<Integer, Point>>() {
+            dataPoints.map(new MapFunction<IndexedPoint, Tuple2<Integer, String>>() {
                 @Override
-                public Tuple2<Integer, Point> map(IndexedPoint indexedPoint) throws Exception {
-                    return new Tuple2<Integer, Point>(indexedPoint.getIndex(), indexedPoint.getPoint());
+                public Tuple2<Integer, String> map(IndexedPoint indexedPoint) throws Exception {
+                    StringBuilder pointStr = new StringBuilder("");
+                    int lengthMinus = indexedPoint.getFields().length -1;
+                    for (int i = 0; i < lengthMinus; i++) {
+                        pointStr = pointStr.append(indexedPoint.getFields()[i]);
+                        pointStr = pointStr.append(" ");
+                    }
+                    pointStr = pointStr.append(indexedPoint.getFields()[lengthMinus]);
+                    return new Tuple2<Integer, String>(indexedPoint.getIndex(), pointStr.toString());
                 }
             })
-                    .writeAsCsv(outputDir, "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+                    .writeAsCsv(outputDir, "\n", ",", FileSystem.WriteMode.OVERWRITE);
             // since file sinks are lazy, we trigger the execution explicitly
             env.execute("Bisecting Kmeans Clustering");
         } else {
@@ -147,7 +154,7 @@ public class BisectingKMeans {
                         int i = 0;
                         while (iterator.hasNext()) {
                             IndexedPoint pointIdx = iterator.next();
-                            collector.collect(new ClusterCenter(pointIdx.getIndex() * 2 + i, pointIdx.getPoint()));
+                            collector.collect(new ClusterCenter(pointIdx.getIndex() * 2 + i, pointIdx.getFields()));
                             i++;
                         }
                     }
@@ -182,7 +189,7 @@ public class BisectingKMeans {
 
             @Override
             public Double map(Tuple2<ClusterCenter, ClusterCenter> tuple) throws Exception {
-                return Math.sqrt(tuple.f0.getPoint().squaredDistance(tuple.f1.getPoint()));
+                return Math.sqrt(tuple.f0.squaredDistance(tuple.f1));
             }
         }).filter(new FilterFunction<Double>() {
             @Override
@@ -223,22 +230,22 @@ public class BisectingKMeans {
     public static ClusterCenter getRootCenter(int index, DataSet<IndexedPoint> data) {
 
         try {
-            List<ClusterCenter> centerList = data.map(new MapFunction<IndexedPoint, Tuple3<Integer, Point, Long>>() {
+            List<ClusterCenter> centerList = data.map(new MapFunction<IndexedPoint, Tuple3<Integer, IndexedPoint, Long>>() {
                 @Override
-                public Tuple3<Integer, Point, Long> map(IndexedPoint pointIndex) throws Exception {
-                    return new Tuple3<Integer, Point, Long>(1, pointIndex.getPoint(), 1L);
+                public Tuple3<Integer, IndexedPoint, Long> map(IndexedPoint pointIndex) throws Exception {
+                    return new Tuple3<Integer, IndexedPoint, Long>(1, pointIndex, 1L);
                 }
             })
-                    .reduce(new ReduceFunction<Tuple3<Integer, Point, Long>>() {
+                    .reduce(new ReduceFunction<Tuple3<Integer, IndexedPoint, Long>>() {
                         @Override
-                        public Tuple3<Integer, Point, Long> reduce(Tuple3<Integer, Point, Long> sumPoint, Tuple3<Integer, Point, Long> t1) throws Exception {
-                            return new Tuple3<Integer, Point, Long>(sumPoint.f0, sumPoint.f1.add(t1.f1), sumPoint.f2 + t1.f2);
+                        public Tuple3<Integer, IndexedPoint, Long> reduce(Tuple3<Integer, IndexedPoint, Long> sumPoint, Tuple3<Integer, IndexedPoint, Long> t1) throws Exception {
+                            return new Tuple3<Integer, IndexedPoint, Long>(sumPoint.f0, sumPoint.f1.add(t1.f1), sumPoint.f2 + t1.f2);
                         }
                     })
-                    .map(new MapFunction<Tuple3<Integer, Point, Long>, ClusterCenter>() {
+                    .map(new MapFunction<Tuple3<Integer, IndexedPoint, Long>, ClusterCenter>() {
                         @Override
-                        public ClusterCenter map(Tuple3<Integer, Point, Long> tuple) throws Exception {
-                            ClusterCenter result = new ClusterCenter(tuple.f0, tuple.f1.divideByScalar(tuple.f2), true);
+                        public ClusterCenter map(Tuple3<Integer, IndexedPoint, Long> tuple) throws Exception {
+                            ClusterCenter result = new ClusterCenter(tuple.f0, tuple.f1.divideByScalar(tuple.f2).getFields(), true);
                             result.setRow(tuple.f2);
                             return result;
                         }
