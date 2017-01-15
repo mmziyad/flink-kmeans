@@ -5,6 +5,7 @@ import de.tu_berlin.dima.bdapro.datatype.Point;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
@@ -193,22 +194,70 @@ public class UDFs {
 
         @Override
         public void flatMap(Tuple2<Centroid, Centroid> val, Collector<Centroid> collector) throws Exception {
-
-            System.out.println("Centroid = " + val.f0.toString() + "|| " + val.f1.toString());
             if (!evaluateConvergence(val.f0, val.f1, threshold)) {
                 collector.collect(val.f0);
             }
         }
-
         private boolean evaluateConvergence(Point p1, Point p2, double threshold) {
             return (p1.squaredDistance(p2) <= threshold * threshold);
         }
     }
 
-    public static class KMeansOutputData implements MapFunction<String, Tuple2<Integer, Point>> {
+    /**
+     * Read the KMeans output data for calculating Davies Bouldin Index
+     */
+    public static class DaviesBouldinIndexInput implements MapFunction<String, Tuple2<Integer, Point>> {
+
+        double[] data;
+        public DaviesBouldinIndexInput(int d) {
+            data = new double[d];
+        }
+
         @Override
         public Tuple2<Integer, Point> map(String value) throws Exception {
+            String fields[] = value.split(Constants.OUT_DELIMITER);
+            String point [] = fields[1].substring( 1, fields[1].length() - 1).split(", ");
+            for (int i = 0; i < point.length; i++) {
+                data[i] = Double.parseDouble(point[i]);
+            }
+            return new Tuple2<>(Integer.parseInt(fields[0]), new Point(data));
+        }
+    }
+    /**
+     * Find the distance of each cluster member from cluster centre
+     */
+    public static class intraClusterDistance extends RichMapFunction<Tuple3<Integer, Point, Long>, Tuple4<Integer, Point, Long, Double>> {
+
+        private Collection<Centroid> centroids;
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            this.centroids = getRuntimeContext().getBroadcastVariable("centroids");
+        }
+        @Override
+        public Tuple4<Integer, Point, Long ,Double> map(Tuple3<Integer, Point, Long> value) throws Exception {
+            for (Centroid c: centroids){
+                if (c.getId() == value.f0){
+                    return new Tuple4<>(value.f0 , value.f1 , value.f2 , c.euclideanDistance(value.f1));
+                }
+            }
             return null;
+        }
+    }
+
+    public static class DaviesBouldinIndexInputV1 implements MapFunction<String, Tuple2<Integer, Point>> {
+
+        double[] data;
+        public DaviesBouldinIndexInputV1(int d) {
+            data = new double[d];
+        }
+
+        @Override
+        public Tuple2<Integer, Point> map(String value) throws Exception {
+            String fields[] = value.split(Constants.IN_DELIMITER);
+            for (int i = 1; i < fields.length; i++) {
+                data[i-1] = Double.parseDouble(fields[i]);
+            }
+            return new Tuple2<>(Integer.parseInt(fields[0]), new Point(data));
         }
     }
 }
