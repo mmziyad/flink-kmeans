@@ -36,11 +36,11 @@ public class GeneratePointsFlatMapFunc extends RichFlatMapFunction<Tuple4<Intege
                 // generate a point for the current centroid
                 Point centroid = centroids.get(nextCentroid);
                 int dimension = centroid.getFields().length;
-                Point point = new Point(dimension + 1);
+                Point point = new Point(dimension);
                 for (int d = 0; d < dimension; d++) {
                     point.getFields()[d] = ((long)(Math.floor(rnd.nextGaussian() * stddev))) + centroid.getFields()[d];
                 }
-                point.getFields()[dimension] = nextCentroid;
+//                point.getFields()[dimension] = nextCentroid;
                 collector.collect(point);
                 nextCentroid = (nextCentroid + 1) % centroids.size();
             }
