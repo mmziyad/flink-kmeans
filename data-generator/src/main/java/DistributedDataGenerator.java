@@ -2,6 +2,7 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.TextOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple4;
+import org.apache.flink.api.java.tuple.Tuple6;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.core.fs.FileSystem;
 
@@ -19,6 +20,8 @@ public class DistributedDataGenerator {
     private static final long DEFAULT_SEED = 4650285087651364L;
     private static final double RELATIVE_STDDEV = 0.01;
     private static final Integer DEFAULT_PARALLELISM = 10;
+    private static final double DEFAULT_NOISE_DEVIATION = 0.5;
+    private static final double DEFAULT_NOISE_FRACTION = 0.1;
 
     static {
         Locale.setDefault(Locale.US);
@@ -54,7 +57,7 @@ public class DistributedDataGenerator {
      *             </ol>
      */
     public static void main(String[] args) throws Exception {
-        System.out.println("KMeansDataGenerator <output> <d> <size> <k> <minDistanceFromMeanCenter> [<stddev>] [<seed>] <parallel>]");
+        System.out.println("KMeansDataGenerator <output> <d> <size> <k> <minDistanceFromMeanCenter> [<stddev>] [<seed>] [<parallel>] [<noisedev>] [<noisefrac>]");
         System.out.println("     - output: Output file location\n" +
                 "     - d: Number of dimensions\n" +
                 "     - size: Number of data points\n" +
@@ -62,7 +65,9 @@ public class DistributedDataGenerator {
                 "     - minDistance: Minimum distance from mean of all centers\n" +
                 "     (Optional) stddev: Standard deviation of data points\n" +
                 "     (Optional) seed: Random seed\n" +
-                "     (Optional) parallel: parallelism should we split");
+                "     (Optional) parallel: parallelism should we split\n" +
+                "     (Optional) noisedev: Standard deviation of data noise\n" +
+                "     (Optional) noisefrac: Fraction of data points which are considered as noise\n");
 
         //1. Get input parameters
         final ParameterTool params = ParameterTool.fromArgs(args);
@@ -80,15 +85,18 @@ public class DistributedDataGenerator {
         final Double stddev = params.getDouble("stddev", RELATIVE_STDDEV);
         final Long firstSeed = params.getLong("seed", DEFAULT_SEED);
         final Integer parallelism = params.getInt("parallel", DEFAULT_PARALLELISM);
+        final Double noisedev = params.getDouble("noisedev", DEFAULT_NOISE_DEVIATION);
+        final Double noisefrac = params.getDouble("noisefrac", DEFAULT_NOISE_FRACTION);
 
         // 2. Initialize standard deviation and random seed
         final double absoluteStdDev = stddev * minDistance;
         final Random random = new Random(firstSeed);
+        final double noiseStdDev = noisedev * minDistance;
 
         // 3. Generate centers
         final long[][] centers = generateCenters(random, k, dimension, minDistance);
 
-        // create centroid list for broadcastset
+        // create centroid list for broadcast set
         List<Point> centroids = new ArrayList<Point>(centers.length);
         for (int i = 0; i < centers.length; i++) {
             Point point = new Point(dimension);
@@ -102,15 +110,17 @@ public class DistributedDataGenerator {
         // 4. Split the number of points need to be generated
         // calculate number of points to generate for each partition
         Long nbPointPerParallel = numDataPoints / parallelism;
-        List<Tuple4<Integer, Long, Double, Random>> partitionInfo = new ArrayList<Tuple4<Integer, Long, Double, Random>>(parallelism);
+        List<Tuple6<Integer, Long, Double, Random, Double, Double>> partitionInfo = new ArrayList<Tuple6<Integer, Long, Double, Random, Double, Double>>(parallelism);
         for (int i = 0; i < parallelism; i++) {
             if (i != parallelism - 1) {
-                partitionInfo.add(new Tuple4<Integer, Long, Double, Random>(i, nbPointPerParallel, absoluteStdDev, random));
+                partitionInfo.add(new Tuple6<Integer, Long, Double, Random, Double, Double>(i, nbPointPerParallel, absoluteStdDev, random, noiseStdDev, noisefrac));
             } else {
                 Long nbRemainedPoints = numDataPoints - nbPointPerParallel * (parallelism - 1);
-                partitionInfo.add(new Tuple4<Integer, Long, Double, Random>(i, nbRemainedPoints, absoluteStdDev, random));
+                partitionInfo.add(new Tuple6<Integer, Long, Double, Random, Double, Double>(i, nbRemainedPoints, absoluteStdDev, random, noiseStdDev, noisefrac));
             }
         }
+
+
 
         // 5. Generate data points by broadcasting centroids for each partition
         // then each partition will generate number of points (in partitionInfo) by standard deviation around each centroids

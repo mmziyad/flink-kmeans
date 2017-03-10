@@ -7,19 +7,19 @@ import java.util.Arrays;
  */
 public class Point implements Serializable {
 
-    private long fields[];
+    private double fields[];
 
     public Point() {}
 
     public Point(int dimensions) {
-        this.fields = new long[dimensions];
+        this.fields = new double[dimensions];
     }
 
-    public Point(long fields[]) {
+    public Point(double fields[]) {
         this.fields = fields;
     }
 
-    public long[] getFields() {
+    public double[] getFields() {
         return fields;
     }
 
