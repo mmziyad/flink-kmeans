@@ -1,10 +1,8 @@
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 
@@ -21,9 +19,9 @@ public class GeneratePointsFlatMapFunc extends RichFlatMapFunction<Tuple4<Intege
     @Override
     public void open(Configuration parameters) throws Exception {
         centroids = getRuntimeContext().getBroadcastVariable("centroids");
-        for(int i =0; i<centroids.size(); i++){
+        /*for(int i =0; i<centroids.size(); i++){
             System.out.println(centroids.get(i));
-        }
+        }*/
     }
 
     @Override

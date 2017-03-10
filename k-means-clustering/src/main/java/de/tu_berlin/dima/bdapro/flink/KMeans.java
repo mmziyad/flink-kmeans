@@ -2,7 +2,6 @@ package de.tu_berlin.dima.bdapro.flink;
 
 import de.tu_berlin.dima.bdapro.datatype.Centroid;
 import de.tu_berlin.dima.bdapro.datatype.Point;
-import de.tu_berlin.dima.bdapro.util.Constants;
 import de.tu_berlin.dima.bdapro.util.UDFs;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
@@ -44,7 +43,7 @@ public class KMeans {
         double threshold = params.getDouble("threshold", 0);
 
         // check if convergence criteria is set
-        boolean convergence = params.getBoolean("convergence" , false);
+        boolean convergence = params.getBoolean("convergence", false);
 
         // get input data:
         DataSet<Point> points = env.readTextFile(params.get("input"))
@@ -76,7 +75,7 @@ public class KMeans {
 
         if (convergence) {
             // Join the new centroid dataset with the previous centroids
-            DataSet<Tuple2<Centroid , Centroid>> compareSet = newCentroids
+            DataSet<Tuple2<Centroid, Centroid>> compareSet = newCentroids
                     .join(loop)
                     .where("id")
                     .equalTo("id");
@@ -88,7 +87,7 @@ public class KMeans {
             // feed new centroids back into next iteration
             // If all the clusters are converged, iteration will stop
             finalCentroids = loop.closeWith(newCentroids, terminationSet);
-        }else{
+        } else {
             finalCentroids = loop.closeWith(newCentroids);
         }
 
@@ -96,16 +95,19 @@ public class KMeans {
         DataSet<Tuple2<Integer, Point>> result = points
                 .map(new UDFs.SelectNearestCenter()).withBroadcastSet(finalCentroids, "centroids");
 
+        // format the results
+        DataSet<String> formattedResult = result.map(new UDFs.ResultFormatter());
+
         // emit result
         if (params.has("output")) {
             //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            result.writeAsCsv(params.get("output"), "\n", Constants.OUT_DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            formattedResult.writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
             // since file sinks are lazy, we trigger the execution explicitly
             env.execute("kMeans Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             //finalCentroids.print();
-            result.print();
+            formattedResult.print();
         }
     }
 }

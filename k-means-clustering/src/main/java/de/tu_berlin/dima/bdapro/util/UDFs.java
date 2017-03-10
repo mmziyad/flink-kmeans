@@ -29,7 +29,7 @@ public class UDFs {
 
         @Override
         public Point map(String value) {
-            String fields[] = value.split(Constants.IN_DELIMITER);
+            String fields[] = value.split(Constants.DELIMITER);
             for (int i = 0; i < fields.length; i++) {
                 data[i] = Double.parseDouble(fields[i]);
             }
@@ -198,66 +198,81 @@ public class UDFs {
                 collector.collect(val.f0);
             }
         }
+
         private boolean evaluateConvergence(Point p1, Point p2, double threshold) {
             return (p1.squaredDistance(p2) <= threshold * threshold);
         }
     }
 
     /**
-     * Read the KMeans output data for calculating Davies Bouldin Index
+     * Read the KMeans output data for cluster quality evaluation
      */
-    public static class DaviesBouldinIndexInput implements MapFunction<String, Tuple2<Integer, Point>> {
+    public static class ClusterMembership implements MapFunction<String, Tuple2<Integer, Point>> {
 
         double[] data;
-        public DaviesBouldinIndexInput(int d) {
+
+        public ClusterMembership(int d) {
             data = new double[d];
         }
 
         @Override
         public Tuple2<Integer, Point> map(String value) throws Exception {
-            String fields[] = value.split(Constants.OUT_DELIMITER);
-            String point [] = fields[1].substring( 1, fields[1].length() - 1).split(", ");
-            for (int i = 0; i < point.length; i++) {
-                data[i] = Double.parseDouble(point[i]);
+            String fields[] = value.split(Constants.DELIMITER);
+            for (int i = 1; i < fields.length; i++) {
+                data[i-1] = Double.parseDouble(fields[i]);
             }
             return new Tuple2<>(Integer.parseInt(fields[0]), new Point(data));
         }
     }
+
     /**
      * Find the distance of each cluster member from cluster centre
      */
     public static class intraClusterDistance extends RichMapFunction<Tuple3<Integer, Point, Long>, Tuple4<Integer, Point, Long, Double>> {
 
         private Collection<Centroid> centroids;
+        private int norm;
+
+        public intraClusterDistance(int norm) {
+            if (norm != 1 && norm != 2)
+                throw new IllegalArgumentException("Invalid norm for distance calculation.");
+            this.norm = norm;
+        }
+
         @Override
         public void open(Configuration parameters) throws Exception {
             this.centroids = getRuntimeContext().getBroadcastVariable("centroids");
         }
+
         @Override
-        public Tuple4<Integer, Point, Long ,Double> map(Tuple3<Integer, Point, Long> value) throws Exception {
-            for (Centroid c: centroids){
-                if (c.getId() == value.f0){
-                    return new Tuple4<>(value.f0 , value.f1 , value.f2 , c.euclideanDistance(value.f1));
+        public Tuple4<Integer, Point, Long, Double> map(Tuple3<Integer, Point, Long> value) throws Exception {
+            for (Centroid c : centroids) {
+                if (c.getId() == value.f0) {
+                    if (norm == 1)
+                        return new Tuple4<>(value.f0, value.f1, value.f2, c.euclideanDistance(value.f1));
+                    else if (norm == 2)
+                        return new Tuple4<>(value.f0, value.f1, value.f2, c.squaredDistance(value.f1));
                 }
             }
             return null;
         }
     }
 
-    public static class DaviesBouldinIndexInputV1 implements MapFunction<String, Tuple2<Integer, Point>> {
+    /**
+     * Format the output as desired
+     */
 
-        double[] data;
-        public DaviesBouldinIndexInputV1(int d) {
-            data = new double[d];
-        }
+    public static class ResultFormatter implements MapFunction<Tuple2<Integer, Point>, String> {
+        StringBuilder sb = new StringBuilder();
 
         @Override
-        public Tuple2<Integer, Point> map(String value) throws Exception {
-            String fields[] = value.split(Constants.IN_DELIMITER);
-            for (int i = 1; i < fields.length; i++) {
-                data[i-1] = Double.parseDouble(fields[i]);
+        public String map(Tuple2<Integer, Point> val) throws Exception {
+            sb.setLength(0);
+            sb.append(val.f0);
+            for (double d : val.f1.getFields()) {
+                sb.append(" " + d);
             }
-            return new Tuple2<>(Integer.parseInt(fields[0]), new Point(data));
+            return sb.toString();
         }
     }
 }

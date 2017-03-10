@@ -2,7 +2,6 @@ package de.tu_berlin.dima.bdapro.flink;
 
 import de.tu_berlin.dima.bdapro.datatype.Centroid;
 import de.tu_berlin.dima.bdapro.datatype.Point;
-import de.tu_berlin.dima.bdapro.util.Constants;
 import de.tu_berlin.dima.bdapro.util.UDFs;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.DataSet;
@@ -150,15 +149,19 @@ public class InitKMeansParallel {
         DataSet<Tuple2<Integer, Point>> result = points
                 .map(new UDFs.SelectNearestCenter()).withBroadcastSet(finalCentroids, "centroids");
 
+        // format the results
+        DataSet<String> formattedResult = result.map(new UDFs.ResultFormatter());
+
         // emit result
         if (params.has("output")) {
             //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            result.writeAsCsv(params.get("output"), "\n", Constants.OUT_DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            formattedResult.writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
+            // since file sinks are lazy, we trigger the execution explicitly
             env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             //finalCentroids.print();
-            result.print();
+            formattedResult.print();
         }
     }
 }

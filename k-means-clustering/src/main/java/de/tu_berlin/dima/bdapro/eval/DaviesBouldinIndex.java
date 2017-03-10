@@ -48,7 +48,7 @@ public class DaviesBouldinIndex {
 
         // Read the output of KMeans clustering, and append 1L to each record
         DataSet<Tuple3<Integer, Point, Long>> clusterMembers = env.readTextFile(params.get("input"))
-                .map(new UDFs.DaviesBouldinIndexInput(d))
+                .map(new UDFs.ClusterMembership(d))
                 .map(new UDFs.CountAppender());
 
         // Find the cluster centres
@@ -58,9 +58,9 @@ public class DaviesBouldinIndex {
                 .map(new UDFs.CentroidAverager());
 
         // Find intraCluster Distance for each cluster
-        // The, find the average intracluster distance
+        // Then, find the average intracluster distance
         DataSet<Tuple2<Integer, Double>> intraClusterDistance = clusterMembers
-                .map(new UDFs.intraClusterDistance()).withBroadcastSet(clusterCentres, "centroids")
+                .map(new UDFs.intraClusterDistance(1)).withBroadcastSet(clusterCentres, "centroids")
                 .groupBy(0)
                 .reduce(new ReduceFunction<Tuple4<Integer, Point, Long, Double>>() {
                     @Override
