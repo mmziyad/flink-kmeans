@@ -26,7 +26,6 @@ import java.util.*;
  * Created by JML on 1/5/17.
  */
 public class BisectingKMeans {
-
     public static void main(String[] args) throws Exception {
         //1. Get input
         final ParameterTool params = ParameterTool.fromArgs(args);
@@ -38,77 +37,98 @@ public class BisectingKMeans {
         Float threshold = params.getFloat("threshold", 0);
 
         //check required input
-        if (inputFile == null || k == null || iterations == null || outputDir == null || dimension == null) {
-            System.out.println("BisectingKMeans <input> <output> <dimension> <k> <iterations> [<threshold>]");
+        if (inputFile == null || k == null || iterations == null || outputDir == null) {
+            System.out.println("BisectingKMeans <input> <output> <k> <iterations> [<threshold>]");
             System.exit(1);
         }
 
         // set up execution environment
         ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-
         // make parameters available in the web interface
         env.getConfig().setGlobalJobParameters(params);
 
-        // get input data:
-        DataSet<IndexedPoint> dataPoints = env.readTextFile(params.get("input"))
-                .map(new UDFs.PointData(dimension))
-                .map(new MapFunction<Point, IndexedPoint>() {
-                    @Override
-                    public IndexedPoint map(Point point) throws Exception {
-                        return new IndexedPoint(1, point);
-                    }
-                });
-
-        // calculate root center
-        ClusterCenter rootNode = getRootCenter(1, dataPoints);
-//        System.out.println("Root node: " + rootNode.toString());
-
         int loop = 1;
-        // start with root node
-        Map<Integer, ClusterCenter> indexTree = new HashedMap();
-        indexTree.put(rootNode.getIndex(), rootNode);
+        // initialize folder for temp data and index
+        String tmpPath = "/tmp";
+        String indexPath = "/index";
 
         // loop until get k
-//        IterativeDataSet<IndexedPoint> iterativeData = dataPoints.iterate(k-1);
+        DataSet<IndexedPoint> dataPoints = null;
+        // index (summary) of data
+        DataSet<ClusterCenter> centerSummary = null;
+
+        HashMap<Integer, DataSet<IndexedPoint>> datasetMap = new HashMap<>();
+
         while (loop < k) {
+            // SOLUTION 1
+            // chosen cluster to split
+            ClusterCenter dividableLeafNode = null;
+            if (loop == 1) {
+                // for 1st loop, default split is root center
+                dividableLeafNode = getRootCenter(1);
+
+                dataPoints = env
+                        .readTextFile(params.get("input"))
+                        // for 1st iteration, all points are assigned with default index = 1
+                        .map(new Utils.DefaultIndexedPointData());
+            } else {
+                // load index (summary) from index folder
+                centerSummary = env.readTextFile(params.get("output") + indexPath)
+                        .map(new MapFunction<String, ClusterCenter>() {
+                            @Override
+                            public ClusterCenter map(String s) throws Exception {
+                                String[] cols = s.split(Constants.DELIMITER);
+                                ClusterCenter center = new ClusterCenter(Integer.parseInt(cols[0]), null);
+                                center.setRow(Long.parseLong(cols[1]));
+                                center.setLeafNode(Boolean.parseBoolean(cols[2]));
+                                return center;
+                            }
+                        });
+
+                // pick cluster to split
+                dividableLeafNode = getDividableLeafNode(centerSummary);
+
+//                // load data from temp folder
+                dataPoints = env.readTextFile(params.get("output") + tmpPath + "/sub" + dividableLeafNode.getIndex())
+                        .map(new MapFunction<String, IndexedPoint>() {
+                            @Override
+                            public IndexedPoint map(String s) throws Exception {
+                                String cols[] = s.split(Constants.DELIMITER);
+                                double[] fields = new double[cols.length - 1];
+                                for (int i = 0; i < fields.length; i++) {
+                                    fields[i] = Double.parseDouble(cols[i + 1]);
+                                }
+                                Point point = new Point(fields);
+                                return new IndexedPoint(Integer.parseInt(cols[0]), point);
+                            }
+                        });
+            }
+
             // calculate the leaf node to split
             // -> maybe send by broadcast set
-            final ClusterCenter dividableLeafNode = getDividableLeafNode(indexTree);
 
             // filter data of chosen leaf node
-            DataSet<IndexedPoint> dividableData = dataPoints.filter(new FilterFunction<IndexedPoint>() {
-                @Override
-                public boolean filter(IndexedPoint point) throws Exception {
-                    return dividableLeafNode.getIndex() == point.getIndex();
-                }
-            });
+//            DataSet<IndexedPoint> dividableData = dataPoints.filter(new Utils.FilterDividableDataFunc(dividableLeafNode.getIndex()));
+            DataSet<IndexedPoint> dividableData = dataPoints;
 
             // filter out data of other leaf nodes
-            DataSet<IndexedPoint> undividableData = dataPoints.filter(new FilterFunction<IndexedPoint>() {
-                @Override
-                public boolean filter(IndexedPoint point) throws Exception {
-                    return dividableLeafNode.getIndex() != point.getIndex();
-                }
-            });
+//            DataSet<IndexedPoint> undividableData = dataPoints.filter(new Utils.FilterUndividableDataFunc(dividableLeafNode.getIndex()));
+
 
             // divide data then union with undivided data
-            DataSet<IndexedPoint> result = divideData(dividableData, dividableLeafNode, iterations, threshold, indexTree)
-                    .union(undividableData);
-            dataPoints = result;
-            loop++;
-        }
-//        System.out.println("Final result: ");
-//        dataPoints.print();
-//        System.out.println("-----Final result: ");
+            DataSet<IndexedPoint> result = divideData(dividableData, dividableLeafNode, params.get("output") + indexPath, centerSummary, iterations, threshold, env);
+//                    .union(undividableData);
 
-        // emit result
-        if (outputDir != null || !outputDir.isEmpty()) {
-            //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            dataPoints.map(new MapFunction<IndexedPoint, Tuple2<Integer, String>>() {
+
+//            // write to temp folder
+            DataSet<IndexedPoint> set1 = result.filter(new Utils.FilterDividableDataFunc(dividableLeafNode.getIndex() * 2));
+            DataSet<IndexedPoint> set2 = result.filter(new Utils.FilterDividableDataFunc(dividableLeafNode.getIndex() * 2 + 1));
+
+            set1.map(new MapFunction<IndexedPoint, Tuple2<Integer, String>>() {
                 @Override
                 public Tuple2<Integer, String> map(IndexedPoint indexedPoint) throws Exception {
                     StringBuilder pointStr = new StringBuilder("");
-                    int lengthMinus = indexedPoint.getFields().length -1;
+                    int lengthMinus = indexedPoint.getFields().length - 1;
                     for (int i = 0; i < lengthMinus; i++) {
                         pointStr = pointStr.append(indexedPoint.getFields()[i]);
                         pointStr = pointStr.append(" ");
@@ -117,34 +137,150 @@ public class BisectingKMeans {
                     return new Tuple2<Integer, String>(indexedPoint.getIndex(), pointStr.toString());
                 }
             })
-                    .writeAsCsv(outputDir, "\n", ",", FileSystem.WriteMode.OVERWRITE);
-            // since file sinks are lazy, we trigger the execution explicitly
-            env.execute("Bisecting Kmeans Clustering");
-        } else {
-            System.out.println("Printing result to stdout. Use --output to specify output path.");
-            //finalCentroids.print();
-            dataPoints.print();
+                    .writeAsCsv(params.get("output") + tmpPath + "/sub" + (dividableLeafNode.getIndex() * 2), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+
+            set2.map(new MapFunction<IndexedPoint, Tuple2<Integer, String>>() {
+                @Override
+                public Tuple2<Integer, String> map(IndexedPoint indexedPoint) throws Exception {
+                    StringBuilder pointStr = new StringBuilder("");
+                    int lengthMinus = indexedPoint.getFields().length - 1;
+                    for (int i = 0; i < lengthMinus; i++) {
+                        pointStr = pointStr.append(indexedPoint.getFields()[i]);
+                        pointStr = pointStr.append(" ");
+                    }
+                    pointStr = pointStr.append(indexedPoint.getFields()[lengthMinus]);
+                    return new Tuple2<Integer, String>(indexedPoint.getIndex(), pointStr.toString());
+                }
+            })
+                    .writeAsCsv(params.get("output") + tmpPath + "/sub" + (dividableLeafNode.getIndex() * 2 + 1), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+
+            loop++;
+            env.execute("Bisecting Kmeans V11 Clustering");
         }
 
-    }
+        // rewrite the index file
 
-    public static ClusterCenter getDividableLeafNode(Map<Integer, ClusterCenter> indexTree) {
-        Set<Integer> keySet = indexTree.keySet();
-        long maxSize = 0;
-        int indexOfMaxNode = 0;
-        Iterator<Integer> keyIter = keySet.iterator();
-        while (keyIter.hasNext()) {
-            Integer index = keyIter.next();
-            ClusterCenter node = indexTree.get(index);
-            if (node.getRow() > maxSize && node.getRow() >= 2 && node.isLeafNode() == true) {
-                maxSize = node.getRow();
-                indexOfMaxNode = index;
+        List<ClusterCenter> finalCenters = env.readTextFile(params.get("output") + indexPath)
+                .map(new MapFunction<String, ClusterCenter>() {
+                    @Override
+                    public ClusterCenter map(String s) throws Exception {
+                        String[] cols = s.split(Constants.DELIMITER);
+                        ClusterCenter center = new ClusterCenter(Integer.parseInt(cols[0]), null);
+                        center.setRow(Long.parseLong(cols[1]));
+                        center.setLeafNode(Boolean.parseBoolean(cols[2]));
+                        return center;
+                    }
+                }).collect();
+
+        DataSet<IndexedPoint> finalPoints = null;
+        for (int i = 0; i < finalCenters.size(); i++) {
+            ClusterCenter center = finalCenters.get(i);
+            if (center.isLeafNode()) {
+                DataSet<IndexedPoint> temp = env.readTextFile(params.get("output") + tmpPath + "/sub" + center.getIndex())
+                        .map(new MapFunction<String, IndexedPoint>() {
+                            @Override
+                            public IndexedPoint map(String s) throws Exception {
+                                String cols[] = s.split(Constants.DELIMITER);
+                                double[] fields = new double[cols.length - 1];
+                                for (int i = 0; i < fields.length; i++) {
+                                    fields[i] = Double.parseDouble(cols[i + 1]);
+                                }
+                                Point point = new Point(fields);
+                                return new IndexedPoint(Integer.parseInt(cols[0]), point);
+                            }
+                        });
+                if (finalPoints != null) {
+                    finalPoints = temp.union(finalPoints);
+                } else {
+                    finalPoints = temp;
+                }
             }
         }
-        return indexTree.get(indexOfMaxNode);
+
+        finalPoints.map(new MapFunction<IndexedPoint, Tuple2<Integer, String>>() {
+            @Override
+            public Tuple2<Integer, String> map(IndexedPoint indexedPoint) throws Exception {
+                StringBuilder pointStr = new StringBuilder("");
+                int lengthMinus = indexedPoint.getFields().length - 1;
+                for (int i = 0; i < lengthMinus; i++) {
+                    pointStr = pointStr.append(indexedPoint.getFields()[i]);
+                    pointStr = pointStr.append(" ");
+                }
+                pointStr = pointStr.append(indexedPoint.getFields()[lengthMinus]);
+                return new Tuple2<Integer, String>(indexedPoint.getIndex(), pointStr.toString());
+            }
+        })
+                .writeAsCsv(params.get("output") + "/result", "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+
+        env.execute();
+
     }
 
-    public static DataSet<IndexedPoint> divideData(DataSet<IndexedPoint> data, final ClusterCenter center, int maxIterations, final float threshold, final Map<Integer, ClusterCenter> indexTree) throws Exception {
+    public static DataSet<ClusterCenter> summarize(DataSet<IndexedPoint> data) {
+        DataSet<ClusterCenter> centers = data
+                .map(new MapFunction<IndexedPoint, Tuple2<Integer, Integer>>() {
+                    @Override
+                    public Tuple2<Integer, Integer> map(IndexedPoint indexedPoint) throws Exception {
+                        return new Tuple2<Integer, Integer>(indexedPoint.getIndex(), 1);
+                    }
+                })
+                .groupBy(0)
+                .sum(1)
+                .map(new MapFunction<Tuple2<Integer, Integer>, ClusterCenter>() {
+                    @Override
+                    public ClusterCenter map(Tuple2<Integer, Integer> tuple) throws Exception {
+                        ClusterCenter center = new ClusterCenter(tuple.f0, null, true);
+                        center.setRow(tuple.f1);
+                        return center;
+                    }
+                });
+        return centers;
+    }
+
+    public static ClusterCenter getDividableLeafNode(DataSet<ClusterCenter> centers) throws Exception {
+        ClusterCenter chosenCenter = centers.reduceGroup(new GroupReduceFunction<ClusterCenter, ClusterCenter>() {
+            @Override
+            public void reduce(Iterable<ClusterCenter> iterable, Collector<ClusterCenter> collector) throws Exception {
+                Iterator<ClusterCenter> centerIter = iterable.iterator();
+                long maxSize = 0;
+                ClusterCenter maxCenter = null;
+                while (centerIter.hasNext()) {
+                    ClusterCenter element = centerIter.next();
+                    if (element.getRow() > maxSize && element.getRow() >= 2 && element.isLeafNode()) {
+                        maxSize = element.getRow();
+                        maxCenter = element;
+                    }
+                }
+
+                collector.collect(maxCenter);
+            }
+        }).collect().get(0);
+        return chosenCenter;
+    }
+
+    public static DataSet<ClusterCenter> getDividableLeafNodeDataSet(DataSet<ClusterCenter> centers) throws Exception {
+        DataSet<ClusterCenter> chosenCenter = centers.reduceGroup(new GroupReduceFunction<ClusterCenter, ClusterCenter>() {
+            @Override
+            public void reduce(Iterable<ClusterCenter> iterable, Collector<ClusterCenter> collector) throws Exception {
+                Iterator<ClusterCenter> centerIter = iterable.iterator();
+                long maxSize = 0;
+                ClusterCenter maxCenter = null;
+                while (centerIter.hasNext()) {
+                    ClusterCenter element = centerIter.next();
+                    if (element.getRow() > maxSize && element.getRow() >= 2 && element.isLeafNode()) {
+                        maxSize = element.getRow();
+                        maxCenter = element;
+                    }
+                }
+
+                collector.collect(maxCenter);
+            }
+        });
+        return chosenCenter;
+    }
+
+
+    public static DataSet<IndexedPoint> divideData(DataSet<IndexedPoint> data, final ClusterCenter center, String indexDir, DataSet<ClusterCenter> centerSummary, int maxIterations, final float threshold, ExecutionEnvironment env) throws Exception {
         // pick random initial centers to split
         DataSet<ClusterCenter> initialCenters = DataSetUtils.sampleWithSize(data, false, 2, Long.MAX_VALUE)
                 .reduceGroup(new GroupReduceFunction<IndexedPoint, ClusterCenter>() {
@@ -154,7 +290,8 @@ public class BisectingKMeans {
                         int i = 0;
                         while (iterator.hasNext()) {
                             IndexedPoint pointIdx = iterator.next();
-                            collector.collect(new ClusterCenter(pointIdx.getIndex() * 2 + i, pointIdx.getFields()));
+                            ClusterCenter clusterCenter = new ClusterCenter(pointIdx.getIndex() * 2 + i, pointIdx.getFields(), true);
+                            collector.collect(clusterCenter);
                             i++;
                         }
                     }
@@ -164,7 +301,9 @@ public class BisectingKMeans {
         IterativeDataSet<ClusterCenter> iterativeCenters = initialCenters.iterate(maxIterations);
 
         // get closet center
-        DataSet<Tuple3<Integer, IndexedPoint, Long>> mappedData = data.map(new Utils.SelectNearestCenter()).withBroadcastSet(iterativeCenters, "centroids");
+        DataSet<Tuple3<Integer, IndexedPoint, Long>> mappedData = data
+                .map(new Utils.SelectNearestCenter())
+                .withBroadcastSet(iterativeCenters, "centroids");
 
         // sum all points and calculate new centers
         DataSet<ClusterCenter> splittedCenters = mappedData
@@ -173,95 +312,69 @@ public class BisectingKMeans {
                 .map(new Utils.MapSumToClusterCenterFunc());
 
         // check convergence with previous centers
-        JoinOperator.DefaultJoin<ClusterCenter, ClusterCenter> joinedCenters = iterativeCenters.join(splittedCenters).where(new KeySelector<ClusterCenter, Integer>() {
-            @Override
-            public Integer getKey(ClusterCenter clusterCenter) throws Exception {
-                return clusterCenter.getIndex();
-            }
-        }).equalTo(new KeySelector<ClusterCenter, Integer>() {
-            @Override
-            public Integer getKey(ClusterCenter clusterCenter) throws Exception {
-                return clusterCenter.getIndex();
-            }
-        });
-
-        DataSet<Double> convergenceSet = joinedCenters.map(new MapFunction<Tuple2<ClusterCenter, ClusterCenter>, Double>() {
-
-            @Override
-            public Double map(Tuple2<ClusterCenter, ClusterCenter> tuple) throws Exception {
-                return Math.sqrt(tuple.f0.squaredDistance(tuple.f1));
-            }
-        }).filter(new FilterFunction<Double>() {
-            @Override
-            public boolean filter(Double variance) throws Exception {
-                return variance > threshold;
-            }
-        });
-
-
-        DataSet<ClusterCenter> finalClusters = iterativeCenters.closeWith(splittedCenters, convergenceSet);
-
-        DataSet<IndexedPoint> finalPoints = data.map(new Utils.SelectNearestCenter()).withBroadcastSet(finalClusters, "centroids")
-                .map(new MapFunction<Tuple3<Integer, IndexedPoint, Long>, IndexedPoint>() {
+        JoinOperator.DefaultJoin<ClusterCenter, ClusterCenter> joinedCenters = splittedCenters
+                .join(iterativeCenters)
+                .where(new KeySelector<ClusterCenter, Integer>() {
                     @Override
-                    public IndexedPoint map(Tuple3<Integer, IndexedPoint, Long> tuple) throws Exception {
-                        return tuple.f1;
+                    public Integer getKey(ClusterCenter clusterCenter) throws Exception {
+                        return clusterCenter.getIndex();
+                    }
+                })
+                .equalTo(new KeySelector<ClusterCenter, Integer>() {
+                    @Override
+                    public Integer getKey(ClusterCenter clusterCenter) throws Exception {
+                        return clusterCenter.getIndex();
                     }
                 });
 
-        List<ClusterCenter> centerList = finalClusters.collect();
-        for (int i = 0; i < centerList.size(); i++) {
-            ClusterCenter item = centerList.get(i);
-            indexTree.put(item.getIndex(), item);
-        }
+        DataSet<Double> convergenceSet = joinedCenters
+                .map(new MapFunction<Tuple2<ClusterCenter, ClusterCenter>, Double>() {
+                    @Override
+                    public Double map(Tuple2<ClusterCenter, ClusterCenter> tuple) throws Exception {
+                        return tuple.f0.squaredDistance(tuple.f1);
+                    }
+                })
+                .filter(new FilterFunction<Double>() {
+                    @Override
+                    public boolean filter(Double variance) throws Exception {
+                        return variance > threshold * threshold;
+                    }
+                });
 
-        // reset leaf node of the original center after dividing
-        center.setLeafNode(false);
-//        System.out.println("DivideData root node: " + indexTree.toString());
-//
-//        System.out.println("Final center: ");
-//        finalClusters.print();
-//        System.out.println("----------- Final center: ");
+        // close cluster
+        DataSet<ClusterCenter> finalClusters = iterativeCenters.closeWith(splittedCenters, convergenceSet);
+
+        // map points to cluster
+        DataSet<IndexedPoint> finalPoints = data
+                .map(new Utils.SelectNearestCenter2()).withBroadcastSet(finalClusters, "centroids2");
+
+        if (centerSummary != null) {
+            finalClusters
+                    .union(centerSummary)
+                    .map(new Utils.UpdateRootForSplittedCentersMapFunc(center))
+                    .writeAsCsv(indexDir, "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            env.execute("Execute Bisecting KMeans V11 divide data");
+        } else {
+            finalClusters
+                    .map(new Utils.UpdateRootForSplittedCentersMapFunc(center))
+                    .writeAsCsv(indexDir, "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
+            env.execute("Execute Bisecting KMeans V11 divide data");
+        }
 
         return finalPoints;
 
     }
 
-    public static ClusterCenter getRootCenter(int index, DataSet<IndexedPoint> data) {
+    public static ClusterCenter getRootCenter(int index) {
 
         try {
-            List<ClusterCenter> centerList = data.map(new MapFunction<IndexedPoint, Tuple3<Integer, IndexedPoint, Long>>() {
-                @Override
-                public Tuple3<Integer, IndexedPoint, Long> map(IndexedPoint pointIndex) throws Exception {
-                    return new Tuple3<Integer, IndexedPoint, Long>(1, pointIndex, 1L);
-                }
-            })
-                    .reduce(new ReduceFunction<Tuple3<Integer, IndexedPoint, Long>>() {
-                        @Override
-                        public Tuple3<Integer, IndexedPoint, Long> reduce(Tuple3<Integer, IndexedPoint, Long> sumPoint, Tuple3<Integer, IndexedPoint, Long> t1) throws Exception {
-                            return new Tuple3<Integer, IndexedPoint, Long>(sumPoint.f0, sumPoint.f1.add(t1.f1), sumPoint.f2 + t1.f2);
-                        }
-                    })
-                    .map(new MapFunction<Tuple3<Integer, IndexedPoint, Long>, ClusterCenter>() {
-                        @Override
-                        public ClusterCenter map(Tuple3<Integer, IndexedPoint, Long> tuple) throws Exception {
-                            ClusterCenter result = new ClusterCenter(tuple.f0, tuple.f1.divideByScalar(tuple.f2).getFields(), true);
-                            result.setRow(tuple.f2);
-                            return result;
-                        }
-                    }).collect();
-            return centerList.get(0);
-//            double[] point = new double[2];
-//            point[0] = 0;
-//            point[1] = 0;
-//            ClusterCenter center =  new ClusterCenter(1,new Point(point), true);
-//            center.setRow(25);
-//            return center;
+            ClusterCenter center = new ClusterCenter(index, null, true);
+            // suppose that root node always have more than 2 rows to split
+            center.setRow(2);
+            return center;
         } catch (Exception e) {
             e.printStackTrace();
         }
         return null;
     }
-
-
 }
