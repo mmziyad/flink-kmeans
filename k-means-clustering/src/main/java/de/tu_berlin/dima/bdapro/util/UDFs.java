@@ -219,7 +219,7 @@ public class UDFs {
         public Tuple2<Integer, Point> map(String value) throws Exception {
             String fields[] = value.split(Constants.DELIMITER);
             for (int i = 1; i < fields.length; i++) {
-                data[i-1] = Double.parseDouble(fields[i]);
+                data[i - 1] = Double.parseDouble(fields[i]);
             }
             return new Tuple2<>(Integer.parseInt(fields[0]), new Point(data));
         }
@@ -273,6 +273,20 @@ public class UDFs {
                 sb.append(" " + d);
             }
             return sb.toString();
+        }
+    }
+
+    /**
+     * Convert Cetnroid Datatype to Point
+     */
+    public static class CentroidToPoint implements MapFunction<Centroid, String> {
+        @Override
+        public String map(Centroid centroid) throws Exception {
+            StringBuilder result = new StringBuilder();
+            for (double d : centroid.getFields()){
+                result.append(d).append(Constants.DELIMITER);
+            }
+            return result.substring(0, result.length() - 1);
         }
     }
 }

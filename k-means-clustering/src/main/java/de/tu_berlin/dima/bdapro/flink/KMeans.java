@@ -49,11 +49,18 @@ public class KMeans {
         DataSet<Point> points = env.readTextFile(params.get("input"))
                 .map(new UDFs.PointData(d));
 
+        DataSet<Centroid> centroids;
 
-        // derive initial cluster centres randomly from input vectors
-        DataSet<Centroid> centroids = DataSetUtils
-                .sampleWithSize(points, false, k, Long.MAX_VALUE)
-                .reduceGroup(new UDFs.CentroidLabeler());
+        // get the centres if specified
+        // else, derive initial cluster centres randomly from input vectors
+        if (params.has("centres")) {
+            centroids = env.readTextFile(params.get("centres"))
+                    .map(new UDFs.PointData(d))
+                    .reduceGroup(new UDFs.CentroidLabeler());
+        } else {
+            centroids = DataSetUtils.sampleWithSize(points, false, k, Long.MAX_VALUE)
+                    .reduceGroup(new UDFs.CentroidLabeler());
+        }
 
         // Use Bulk iteration specifying max possible iterations
         // If the clusters converge before that, the iteration will stop.
