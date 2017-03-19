@@ -70,7 +70,6 @@ public class MinibatchKMeans {
         IterativeDataSet<Point> loopCentroids = DataSetUtils.sampleWithSize(dataPoints, false, nbOfClusters, Long.MAX_VALUE)
                 .iterate(nbOfIterations);
 
-//        DataSet<Point> miniBatch = DataSetUtils.sampleWithSize(dataPoints, true, batchSize, Long.MAX_VALUE);
         DataSet<Point> miniBatch = DataSetUtils.sample(dataPoints, false, fraction);
 
         // 2.Map each data points to centers
