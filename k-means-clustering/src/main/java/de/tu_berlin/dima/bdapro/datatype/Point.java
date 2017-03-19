@@ -24,6 +24,10 @@ public class Point implements Serializable {
         return fields;
     }
 
+    public void setFields(double[] fields) {
+        this.fields = fields;
+    }
+
     public double squaredDistance(Point other) {
         double distance = 0;
         for (int i = 0; i < fields.length; i++) {

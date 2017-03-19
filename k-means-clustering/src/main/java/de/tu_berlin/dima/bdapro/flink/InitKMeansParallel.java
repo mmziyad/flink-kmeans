@@ -54,6 +54,9 @@ public class InitKMeansParallel {
         // get the convergence condition
         boolean convergence = params.getBoolean("convergence", false);
 
+        // get the output mode
+        String outputMode = params.get("mode", "membership");
+
         // get input data:
         DataSet<Point> points = env
                 .readTextFile(params.get("input"))
@@ -154,14 +157,22 @@ public class InitKMeansParallel {
 
         // emit result
         if (params.has("output")) {
-            //finalCentroids.writeAsCsv(params.get("output"), "\n", Constants.DELIMITER, FileSystem.WriteMode.OVERWRITE);
-            formattedResult.writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
+            if (outputMode.equals("centres")) {
+                finalCentroids
+                        .map(new UDFs.CentroidToPoint())
+                        .writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
+            } else {
+                formattedResult.writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
+            }
             // since file sinks are lazy, we trigger the execution explicitly
             env.execute("kMeans|| Clustering");
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
-            //finalCentroids.print();
-            formattedResult.print();
+            if (outputMode.equals("centres")) {
+                finalCentroids.print();
+            } else {
+                formattedResult.print();
+            }
         }
     }
 }
