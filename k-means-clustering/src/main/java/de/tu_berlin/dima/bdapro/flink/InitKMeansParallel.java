@@ -158,7 +158,7 @@ public class InitKMeansParallel {
         // emit result
         if (params.has("output")) {
             if (outputMode.equals("centres")) {
-                finalCentroids
+                centroids
                         .map(new UDFs.CentroidToPoint())
                         .writeAsText(params.get("output"), FileSystem.WriteMode.OVERWRITE);
             } else {
@@ -169,7 +169,7 @@ public class InitKMeansParallel {
         } else {
             System.out.println("Printing result to stdout. Use --output to specify output path.");
             if (outputMode.equals("centres")) {
-                finalCentroids.print();
+                centroids.print();
             } else {
                 formattedResult.print();
             }
