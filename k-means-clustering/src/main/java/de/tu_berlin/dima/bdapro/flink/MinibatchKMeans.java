@@ -87,8 +87,6 @@ public class MinibatchKMeans {
                 // assign points to final clusters
                 .map(new SelectNearestCenter()).withBroadcastSet(finalCentroids, "centroids");
 
-
-
         // emit result
         if (outputDir != null) {
             clusteredPoints.writeAsFormattedText(outputDir, FileSystem.WriteMode.OVERWRITE, new TextOutputFormat.TextFormatter<Tuple3<Integer, Point, Long>>() {
@@ -162,7 +160,6 @@ public class MinibatchKMeans {
             // calculate learning rate by count of data points which belongs to cluster
             long learningRate = 1 / center.f2;
             Point newCenter = calculateCenter(center.f1, point.f1, learningRate);
-            // TODO: change double data type for the count
             return new Tuple3<Integer, Point, Long>(center.f0, newCenter, center.f2);
         }
 

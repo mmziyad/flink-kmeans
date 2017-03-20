@@ -142,17 +142,17 @@ public class KMeansDataGenerator {
     private static void writePoint(int cluster, boolean isLabeled, double[] coordinates, StringBuilder buffer, BufferedWriter out) throws IOException {
         buffer.setLength(0);
 
+        if(isLabeled){
+            buffer.append(cluster);
+            buffer.append(DELIMITER);
+        }
+
         // write coordinates
         for (int j = 0; j < coordinates.length; j++) {
             buffer.append(FORMAT.format(coordinates[j]));
             if(j < coordinates.length - 1) {
                 buffer.append(DELIMITER);
             }
-        }
-
-        if(isLabeled){
-            buffer.append(DELIMITER);
-            buffer.append(cluster);
         }
 
         out.write(buffer.toString());

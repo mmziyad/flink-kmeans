@@ -114,11 +114,8 @@ public class BisectingKMeans {
             // filter out data of other leaf nodes
 //            DataSet<IndexedPoint> undividableData = dataPoints.filter(new Utils.FilterUndividableDataFunc(dividableLeafNode.getIndex()));
 
-
             // divide data then union with undivided data
             DataSet<IndexedPoint> result = divideData(dividableData, dividableLeafNode, params.get("output") + indexPath, centerSummary, iterations, threshold, env);
-//                    .union(undividableData);
-
 
 //            // write to temp folder
             DataSet<IndexedPoint> set1 = result.filter(new Utils.FilterDividableDataFunc(dividableLeafNode.getIndex() * 2));
